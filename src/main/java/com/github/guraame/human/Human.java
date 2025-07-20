@@ -28,7 +28,7 @@ public final class Human {
             }
         });
         Scanner scanner = new Scanner(System.in);
-        IdeaManger.addAnIdeaByToken(Token.of("name"), Idea.of("Human"));
+        IdeaManger.addAnIdeaByToken(Token.of("name"), Idea.of("human"));
         MessageParser.parseMessage(Message.of(scanner.nextLine())).printIn(System.out);
     }
 }
