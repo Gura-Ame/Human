@@ -1,5 +1,6 @@
 # 🧠 Human
 
+> I'm a student and I'm only free on Sundays.
 > A Java-based open-source project that aims to reconstruct human-like intelligence — toward high-performance AI and even AGI.
 
 ## 📌 Purpose
