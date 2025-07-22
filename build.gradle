@@ -17,7 +17,7 @@ dependencies {
     // https://mvnrepository.com/artifact/gov.nih.nlm.nls.lexaccess/lexaccess-dist
     implementation 'gov.nih.nlm.nls.lexaccess:lexaccess-dist:2013'
 
-    testImplementation platform('org.junit:junit-bom:5.13.3')
+    testImplementation platform('org.junit:junit-bom:5.13.4')
     testImplementation 'org.junit.jupiter:junit-jupiter'
 }
 
