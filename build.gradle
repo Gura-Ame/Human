@@ -14,8 +14,6 @@ dependencies {
     implementation 'org.jetbrains:annotations:26.0.2'
     // https://mvnrepository.com/artifact/uk.ac.abdn/SimpleNLG
     implementation 'uk.ac.abdn:SimpleNLG:4.4.8'
-    // https://mvnrepository.com/artifact/gov.nih.nlm.nls.lexaccess/lexaccess-dist
-    implementation 'gov.nih.nlm.nls.lexaccess:lexaccess-dist:2013'
 
     testImplementation platform('org.junit:junit-bom:5.13.4')
     testImplementation 'org.junit.jupiter:junit-jupiter'
