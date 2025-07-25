@@ -1,28 +1,28 @@
 package com.github.guraame.human.parse;
 
-import org.jetbrains.annotations.Contract;
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.github.guraame.human.idea.Idea;
+import com.github.guraame.human.label.Label;
 import org.jetbrains.annotations.NotNull;
 
-public final class Token {
-    private final String token;
+import java.util.Arrays;
+import java.util.List;
 
-    private Token(String token) {
-        this.token = token;
+public final class Token extends Label<Token> {
+    private Token(String value) {
+        super(value);
     }
 
-    public String get() {
-        return this.token;
+    @JsonCreator
+    public static @NotNull Token of(String value) {
+        return new Token(value);
     }
 
-    @Contract(value = "_ -> new", pure = true)
-    public static @NotNull Token of(String token) {
-        return new Token(token);
+    public @NotNull Idea toIdea() {
+        return Idea.of(value);
     }
 
-    @Override
-    public boolean equals(Object obj) {
-        if (!(obj instanceof Token compareToken)) return false;
-        if (compareToken.get().equals(this.token)) return true;
-        return super.equals(obj);
+    public static List<Token> of(String... values) {
+        return Arrays.stream(values).map(Token::of).toList();
     }
 }

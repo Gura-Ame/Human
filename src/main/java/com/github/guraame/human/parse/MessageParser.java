@@ -1,8 +1,9 @@
 package com.github.guraame.human.parse;
 
+import com.github.guraame.human.Human;
+import com.github.guraame.human.debug.Debugger;
 import com.github.guraame.human.grammar.GrammarGenerator;
 import com.github.guraame.human.idea.Idea;
-import com.github.guraame.human.idea.IdeaManger;
 import com.github.guraame.human.input.Message;
 import com.github.guraame.human.output.Answer;
 import org.jetbrains.annotations.NotNull;
@@ -32,17 +33,49 @@ public final class MessageParser {
         return stringTokensStream.map(Token::of).toList();
     }
 
+    private static final List<Token> willDelete = Token.of(
+            "What", "What's", "This", "This's", "That", "That's", "There", "There's",
+                    "When", "When's", "Who", "Who's", "Whose", "How", "How's", "Will",
+                    "I", "I'm", "You", "You're", "He", "He's", "She", "She's", "It", "It's",
+                    "Your", "Mine", "Her", "His", "Its"
+    );
+
+    private static List<Token> parseTokenForTrain(@NotNull Message message) {
+        String messageString = message.get().substring(0, (message.get().charAt(message.get().length() - 1) == '.' ? message.get().length() - 1 : message.get().length()));
+        String[] stringTokens = messageString.split(" ");
+
+        Stream<String> stringTokensStream = Arrays.stream(stringTokens)
+                .filter(token -> !willDelete.contains(Token.of(token)));
+
+        return stringTokensStream.map(Token::of).toList();
+    }
+
     public static Answer parseMessage(Message message) {
+        if (Debugger.DEBUG && Debugger.train) {
+            parseMessageAndTrain(message);
+            return Answer.of("");
+        }
+        return parseMessageForChat(message);
+    }
+
+    public static Answer parseMessageForChat(Message message) {
         if (containsHanScript(message)) return Answer.of("Unsupported Message.");
         List<Token> tokens = parseToken(message);
         List<Idea> ideas = new ArrayList<>();
         for (Token token : tokens) {
-            Optional<Idea> ideaLookupResult = IdeaManger.lookupIdeaByToken(token);
+            Set<Idea> ideaLookupResult = Human.ideaManger.getCommonRelated(token);
             if (ideaLookupResult.isEmpty()) {
                 return Answer.of("I don't know.");
             }
-            ideas.add(ideaLookupResult.get());
+            ideas.addAll(ideaLookupResult);
         }
         return GrammarGenerator.createAnswerFromIdeas(ideas);
+    }
+
+    public static void parseMessageAndTrain(Message message) {
+        if (containsHanScript(message)) throw new IllegalArgumentException("Unsupported Message.");
+        List<Token> tokens = parseTokenForTrain(message);
+        Human.ideaManger.linkAll(tokens);
+        System.out.println("Trained.");
     }
 }

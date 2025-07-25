@@ -1,21 +1,28 @@
 package com.github.guraame.human.idea;
 
-import org.jetbrains.annotations.Contract;
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.github.guraame.human.label.Label;
+import com.github.guraame.human.parse.Token;
 import org.jetbrains.annotations.NotNull;
 
-public final class Idea {
-    private final String idea;
+import java.util.Arrays;
+import java.util.List;
 
-    private Idea(String idea) {
-        this.idea = idea;
+public final class Idea extends Label<Idea> {
+    private Idea(String value) {
+        super(value);
     }
 
-    public String get() {
-        return this.idea;
+    @JsonCreator
+    public static @NotNull Idea of(String value) {
+        return new Idea(value);
     }
 
-    @Contract(value = "_ -> new", pure = true)
-    public static @NotNull Idea of(String idea) {
-        return new Idea(idea);
+    public @NotNull Token toToken() {
+        return Token.of(value);
+    }
+
+    public static List<Idea> of(String... values) {
+        return Arrays.stream(values).map(Idea::of).toList();
     }
 }

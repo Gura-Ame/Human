@@ -32,6 +32,7 @@ public final class GrammarGenerator {
         sentence.setSubject("cat");
         sentence.setVerb("chase");
         sentence.setObject(builder.toString());
+
         return Answer.of(realiser.realiseSentence(sentence));
     }
 }
