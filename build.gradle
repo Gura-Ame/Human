@@ -23,6 +23,8 @@ dependencies {
     // https://mvnrepository.com/artifact/com.fasterxml.jackson.core/jackson-annotations
     implementation 'com.fasterxml.jackson.core:jackson-annotations:3.0-rc5'
 
+    implementation 'org.bytedeco:javacv-platform:1.5.12'
+
     testImplementation platform('org.junit:junit-bom:5.13.4')
     testImplementation 'org.junit.jupiter:junit-jupiter'
 }

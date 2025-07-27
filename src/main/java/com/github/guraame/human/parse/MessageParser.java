@@ -9,6 +9,7 @@ import com.github.guraame.human.output.Answer;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.*;
+import java.util.function.Function;
 import java.util.stream.Stream;
 
 public final class MessageParser {
@@ -33,19 +34,27 @@ public final class MessageParser {
         return stringTokensStream.map(Token::of).toList();
     }
 
-    private static final List<Token> willDelete = Token.of(
-            "What", "What's", "This", "This's", "That", "That's", "There", "There's",
-                    "When", "When's", "Who", "Who's", "Whose", "How", "How's", "Will",
-                    "I", "I'm", "You", "You're", "He", "He's", "She", "She's", "It", "It's",
-                    "Your", "Mine", "Her", "His", "Its"
-    );
+    private static final Function<String, String> filter = (s -> {
+        List<String> prefix = List.of(
+                "What", "What's", "This", "This's", "That", "That's", "There", "There's",
+                "When", "When's", "Who", "Who's", "Whose", "How", "How's", "Will",
+                "I", "I'm", "You", "You're", "He", "He's", "She", "She's", "It", "It's",
+                "Your", "Mine", "Her", "His", "Its");
+        for (String prefixString : prefix) {
+            if (s.startsWith(prefixString)) {
+                s = s.substring(prefixString.length());
+            }
+        }
+        List<String> conj = List.of("by", "in", "or", "");
+        return s;
+    });
 
     private static List<Token> parseTokenForTrain(@NotNull Message message) {
         String messageString = message.get().substring(0, (message.get().charAt(message.get().length() - 1) == '.' ? message.get().length() - 1 : message.get().length()));
         String[] stringTokens = messageString.split(" ");
 
         Stream<String> stringTokensStream = Arrays.stream(stringTokens)
-                .filter(token -> !willDelete.contains(Token.of(token)));
+                .map(filter);
 
         return stringTokensStream.map(Token::of).toList();
     }
