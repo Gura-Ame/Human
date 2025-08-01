@@ -1,259 +1,129 @@
 package com.github.guraame.human.senses.eye;
 
-import javax.imageio.ImageIO;
-import java.awt.*;
-import java.awt.image.BufferedImage;
-import java.io.ByteArrayOutputStream;
+import org.bytedeco.javacpp.Loader;
+import org.bytedeco.opencv.opencv_java;
+import org.opencv.core.*;
+import org.opencv.imgcodecs.Imgcodecs;
+import org.opencv.imgproc.Imgproc;
+
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
-import java.util.*;
+import java.util.Base64;
 
 public final class Eye {
 
-    private static final double DELTA_E_THRESHOLD = 1.51;
-    private static final int MAX_DISTANCE = 5;
+    // --- 設定教學 ---
+    // 1. 下載 OpenCV: 前往 https://opencv.org/releases/ 下載符合您作業系統的版本 (例如 4.x.x)。
+    // 2. 設定專案:
+    //    a. 將 opencv-4xx.jar 加入您專案的 build path (library)。
+    //       - (Eclipse/IntelliJ) 右鍵專案 -> Properties/Project Structure -> Libraries -> Add External JARs...
+    //       - JAR 檔案路徑: opencv/build/java/opencv-4xx.jar
+    //    b. 設定 VM 選項以指向 native library (.dll, .so, .dylib)。
+    //       - (Eclipse/IntelliJ) Run -> Edit Configurations... -> VM options
+    //       - 新增: -Djava.library.path="C:/path/to/opencv/build/java/x64" (請換成您的實際路徑)
+    // 3. 在程式碼中載入函式庫 (如下方 static 區塊所示)。
+
+    static {
+        Loader.load(opencv_java.class);
+    }
 
     public static void main(String[] args) {
         try {
-            // 讀取圖像
-            BufferedImage image = ImageIO.read(new File("C:\\Users\\NOBTG\\Downloads\\f2af51e713e9571c07011a38c78f61e0.jpg"));
+            // 讀取圖像 (請替換為您的圖片路徑)
+            String imagePath = "C:\\Users\\NOBTG\\Downloads\\f2af51e713e9571c07011a38c78f61e0.jpg";
+            File inputFile = new File(imagePath);
+            if (!inputFile.exists()) {
+                System.err.println("錯誤：找不到輸入圖片檔案 " + inputFile.getPath());
+                return;
+            }
 
-            // 轉換為SVG
-            String svg = convertImageToSVG(image);
+            // 使用 OpenCV 讀取圖片到 Mat 物件
+            Mat sourceImage = Imgcodecs.imread(imagePath);
+            if (sourceImage.empty()) {
+                System.err.println("錯誤：無法使用 OpenCV 讀取圖片。");
+                return;
+            }
+
+            // 處理圖像並生成SVG
+            String svg = convertImageToSVGWithOpenCV(sourceImage);
 
             // 寫入SVG檔案
-            try (FileWriter writer = new FileWriter("output.svg")) {
+            try (FileWriter writer = new FileWriter("output_opencv_lines.svg")) {
                 writer.write(svg);
             }
 
-            System.out.println("SVG檔案已生成: output.svg");
+            System.out.println("SVG檔案已生成: output_opencv_lines.svg");
 
-        } catch (IOException e) {
+        } catch (Exception e) {
             e.printStackTrace();
         }
     }
 
-    public static String convertImageToSVG(BufferedImage image) {
-        int width = image.getWidth();
-        int height = image.getHeight();
+    public static String convertImageToSVGWithOpenCV(Mat sourceImage) throws IOException {
+        int width = sourceImage.width();
+        int height = sourceImage.height();
 
-        // 建立區塊ID映射
-        int[][] regionMap = new int[height][width];
-        int nextRegionId = 1;
+        // --- 影像處理流程 ---
 
-        // 初始化區塊映射
-        for (int y = 0; y < height; y++) {
-            for (int x = 0; x < width; x++) {
-                regionMap[y][x] = -1;
-            }
-        }
+        // 1. 轉為灰階
+        Mat grayImage = new Mat();
+        Imgproc.cvtColor(sourceImage, grayImage, Imgproc.COLOR_BGR2GRAY);
 
-        // 使用flood fill算法分割相似顏色區塊
-        for (int y = 0; y < height; y++) {
-            for (int x = 0; x < width; x++) {
-                if (regionMap[y][x] == -1) {
-                    Color pixelColor = new Color(image.getRGB(x, y));
-                    floodFill(image, regionMap, x, y, nextRegionId, pixelColor);
-                    nextRegionId++;
-                }
-            }
-        }
+        // 2. 高斯模糊以去噪
+        Mat blurredImage = new Mat();
+        Imgproc.GaussianBlur(grayImage, blurredImage, new org.opencv.core.Size(5, 5), 0);
 
-        // 將原始圖片轉換為Base64
-        String base64Image = imageToBase64(image);
+        // 3. Canny 邊緣偵測
+        Mat edges = new Mat();
+        // 這兩個閾值可以調整，值越低偵測到的邊緣越多
+        Imgproc.Canny(blurredImage, edges, 30, 0);
 
-        // 生成SVG
+        // 4. 霍夫變換 (Hough Transform) 來偵測直線
+        // 這個方法會回傳一系列線段的起點和終點
+        Mat lines = new Mat(); // 儲存偵測到的線條
+        // threshold: 閾值，一條直線上至少要有多少個點才被視為直線，可調整
+        // minLineLength: 線段的最小長度
+        // maxLineGap: 線段之間的最大允許間隙，以將它們視為同一條線
+        Imgproc.HoughLinesP(edges, lines, 1, Math.PI / 180, 0, 0, 5);
+
+        // --- SVG 生成 ---
+
+        // 將原始圖片轉換為Base64，以便嵌入SVG
+        String base64Image = matToBase64(sourceImage, ".png");
+
+        // 生成最終的SVG字符串
         StringBuilder svg = new StringBuilder();
         svg.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
         svg.append(String.format("<svg width=\"%d\" height=\"%d\" xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\">\n", width, height));
 
         // 添加原始圖片作為底圖
-        svg.append(String.format("<image x=\"0\" y=\"0\" width=\"%d\" height=\"%d\" xlink:href=\"data:image/png;base64,%s\"/>\n",
+        svg.append(String.format("  <image x=\"0\" y=\"0\" width=\"%d\" height=\"%d\" xlink:href=\"data:image/png;base64,%s\"/>\n",
                 width, height, base64Image));
 
-        // 繪製邊界線
-        Set<String> boundaries = findBoundaries(regionMap, width, height);
-        for (String boundary : boundaries) {
-            svg.append(boundary);
+        // 繪製偵測到的綠色線條
+        for (int i = 0; i < lines.rows(); i++) {
+            double[] vec = lines.get(i, 0);
+            double x1 = vec[0], y1 = vec[1];
+            double x2 = vec[2], y2 = vec[3];
+            svg.append(String.format("  <line x1=\"%.0f\" y1=\"%.0f\" x2=\"%.0f\" y2=\"%.0f\" stroke=\"green\" stroke-width=\"2\"/>\n",
+                    x1, y1, x2, y2));
         }
 
         svg.append("</svg>");
-
         return svg.toString();
     }
 
-    private static void floodFill(BufferedImage image, int[][] regionMap, int startX, int startY,
-                                  int regionId, Color targetColor) {
-        int width = image.getWidth();
-        int height = image.getHeight();
-
-        Stack<Point> stack = new Stack<>();
-        stack.push(new Point(startX, startY));
-
-        while (!stack.isEmpty()) {
-            Point p = stack.pop();
-            int x = p.x;
-            int y = p.y;
-
-            if (x < 0 || x >= width || y < 0 || y >= height || regionMap[y][x] != -1) {
-                continue;
-            }
-
-            Color currentColor = new Color(image.getRGB(x, y));
-            if (calculateDeltaE(targetColor, currentColor) > DELTA_E_THRESHOLD) {
-                continue;
-            }
-
-            regionMap[y][x] = regionId;
-
-            // 檢查相鄰像素
-            stack.push(new Point(x + 1, y));
-            stack.push(new Point(x - 1, y));
-            stack.push(new Point(x, y + 1));
-            stack.push(new Point(x, y - 1));
-        }
-
-        // 處理距離限制：移除距離太遠的像素
-        cleanupDistantPixels(regionMap, regionId, width, height);
-    }
-
-    private static void cleanupDistantPixels(int[][] regionMap, int regionId, int width, int height) {
-        boolean[][] toRemove = new boolean[height][width];
-
-        for (int y = 0; y < height; y++) {
-            for (int x = 0; x < width; x++) {
-                if (regionMap[y][x] == regionId) {
-                    if (!hasNearbyPixels(regionMap, x, y, regionId, width, height)) {
-                        toRemove[y][x] = true;
-                    }
-                }
-            }
-        }
-
-        // 移除標記的像素
-        for (int y = 0; y < height; y++) {
-            for (int x = 0; x < width; x++) {
-                if (toRemove[y][x]) {
-                    regionMap[y][x] = -1;
-                }
-            }
-        }
-    }
-
-    private static boolean hasNearbyPixels(int[][] regionMap, int x, int y, int regionId,
-                                           int width, int height) {
-        int count = 0;
-        for (int dy = -MAX_DISTANCE; dy <= MAX_DISTANCE; dy++) {
-            for (int dx = -MAX_DISTANCE; dx <= MAX_DISTANCE; dx++) {
-                int nx = x + dx;
-                int ny = y + dy;
-
-                if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
-                    if (regionMap[ny][nx] == regionId) {
-                        count++;
-                        if (count > 1) return true; // 包括自己本身
-                    }
-                }
-            }
-        }
-        return false;
-    }
-
-    private static Set<String> findBoundaries(int[][] regionMap, int width, int height) {
-        Set<String> boundaries = new HashSet<>();
-
-        for (int y = 0; y < height; y++) {
-            for (int x = 0; x < width; x++) {
-                int currentRegion = regionMap[y][x];
-
-                // 檢查右邊界
-                if (x < width - 1 && regionMap[y][x + 1] != currentRegion) {
-                    boundaries.add(String.format(
-                            "<line x1=\"%d\" y1=\"%d\" x2=\"%d\" y2=\"%d\" stroke=\"red\" stroke-width=\"1\"/>\n",
-                            x + 1, y, x + 1, y + 1));
-                }
-
-                // 檢查下邊界
-                if (y < height - 1 && regionMap[y + 1][x] != currentRegion) {
-                    boundaries.add(String.format(
-                            "<line x1=\"%d\" y1=\"%d\" x2=\"%d\" y2=\"%d\" stroke=\"red\" stroke-width=\"1\"/>\n",
-                            x, y + 1, x + 1, y + 1));
-                }
-            }
-        }
-
-        return boundaries;
-    }
-
-    // 計算Delta E (CIE76)
-    private static double calculateDeltaE(Color c1, Color c2) {
-        // 轉換RGB到LAB色彩空間
-        double[] lab1 = rgbToLab(c1);
-        double[] lab2 = rgbToLab(c2);
-
-        // 計算Delta E
-        double deltaL = lab1[0] - lab2[0];
-        double deltaA = lab1[1] - lab2[1];
-        double deltaB = lab1[2] - lab2[2];
-
-        return Math.sqrt(deltaL * deltaL + deltaA * deltaA + deltaB * deltaB);
-    }
-
-    // RGB轉LAB色彩空間
-    private static double[] rgbToLab(Color color) {
-        // 先轉換到XYZ
-        double[] xyz = rgbToXyz(color);
-
-        // 再轉換到LAB
-        double xn = 95.047;  // D65照明體白點
-        double yn = 100.0;
-        double zn = 108.883;
-
-        double fx = xyz[0] / xn > 0.008856 ? Math.pow(xyz[0] / xn, 1.0/3.0) : (7.787 * xyz[0] / xn + 16.0/116.0);
-        double fy = xyz[1] / yn > 0.008856 ? Math.pow(xyz[1] / yn, 1.0/3.0) : (7.787 * xyz[1] / yn + 16.0/116.0);
-        double fz = xyz[2] / zn > 0.008856 ? Math.pow(xyz[2] / zn, 1.0/3.0) : (7.787 * xyz[2] / zn + 16.0/116.0);
-
-        double L = 116.0 * fy - 16.0;
-        double a = 500.0 * (fx - fy);
-        double b = 200.0 * (fy - fz);
-
-        return new double[]{L, a, b};
-    }
-
-    // RGB轉XYZ色彩空間
-    private static double[] rgbToXyz(Color color) {
-        double r = color.getRed() / 255.0;
-        double g = color.getGreen() / 255.0;
-        double b = color.getBlue() / 255.0;
-
-        // Gamma校正
-        r = r > 0.04045 ? Math.pow((r + 0.055) / 1.055, 2.4) : r / 12.92;
-        g = g > 0.04045 ? Math.pow((g + 0.055) / 1.055, 2.4) : g / 12.92;
-        b = b > 0.04045 ? Math.pow((b + 0.055) / 1.055, 2.4) : b / 12.92;
-
-        r *= 100;
-        g *= 100;
-        b *= 100;
-
-        // 轉換矩陣 (sRGB to XYZ)
-        double x = r * 0.4124 + g * 0.3576 + b * 0.1805;
-        double y = r * 0.2126 + g * 0.7152 + b * 0.0722;
-        double z = r * 0.0193 + g * 0.1192 + b * 0.9505;
-
-        return new double[]{x, y, z};
-    }
-
-    // 將BufferedImage轉換為Base64字符串
-    private static String imageToBase64(BufferedImage image) {
-        try {
-            ByteArrayOutputStream baos = new ByteArrayOutputStream();
-            ImageIO.write(image, "png", baos);
-            byte[] imageBytes = baos.toByteArray();
-            return Base64.getEncoder().encodeToString(imageBytes);
-        } catch (IOException e) {
-            e.printStackTrace();
-            return "";
-        }
+    /**
+     * 將 OpenCV Mat 物件轉換為 Base64 字符串。
+     * @param mat OpenCV Mat 物件
+     * @param fileExtension 圖像格式 (例如 ".png" 或 ".jpg")
+     * @return Base64 編碼的字符串
+     */
+    private static String matToBase64(Mat mat, String fileExtension) {
+        MatOfByte matOfByte = new MatOfByte();
+        Imgcodecs.imencode(fileExtension, mat, matOfByte);
+        byte[] byteArray = matOfByte.toArray();
+        return Base64.getEncoder().encodeToString(byteArray);
     }
 }
