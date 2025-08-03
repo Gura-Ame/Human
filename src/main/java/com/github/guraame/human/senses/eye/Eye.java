@@ -9,20 +9,11 @@ import org.opencv.imgproc.Imgproc;
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Base64;
+import java.util.List;
 
 public final class Eye {
-
-    // --- 設定教學 ---
-    // 1. 下載 OpenCV: 前往 https://opencv.org/releases/ 下載符合您作業系統的版本 (例如 4.x.x)。
-    // 2. 設定專案:
-    //    a. 將 opencv-4xx.jar 加入您專案的 build path (library)。
-    //       - (Eclipse/IntelliJ) 右鍵專案 -> Properties/Project Structure -> Libraries -> Add External JARs...
-    //       - JAR 檔案路徑: opencv/build/java/opencv-4xx.jar
-    //    b. 設定 VM 選項以指向 native library (.dll, .so, .dylib)。
-    //       - (Eclipse/IntelliJ) Run -> Edit Configurations... -> VM options
-    //       - 新增: -Djava.library.path="C:/path/to/opencv/build/java/x64" (請換成您的實際路徑)
-    // 3. 在程式碼中載入函式庫 (如下方 static 區塊所示)。
 
     static {
         Loader.load(opencv_java.class);
@@ -45,69 +36,165 @@ public final class Eye {
                 return;
             }
 
-            // 處理圖像並生成SVG
-            String svg = convertImageToSVGWithOpenCV(sourceImage);
+            // 處理圖像並生成SVG (使用 DE2000 優化版本)
+            String svg = convertImageToSVGWithMultiThresholdDE2000(sourceImage);
 
             // 寫入SVG檔案
-            try (FileWriter writer = new FileWriter("output_opencv_lines.svg")) {
+            try (FileWriter writer = new FileWriter("output_de2000_contours.svg")) {
                 writer.write(svg);
             }
 
-            System.out.println("SVG檔案已生成: output_opencv_lines.svg");
+            System.out.println("SVG檔案已生成: output_de2000_contours.svg");
 
         } catch (Exception e) {
             e.printStackTrace();
         }
     }
 
-    public static String convertImageToSVGWithOpenCV(Mat sourceImage) throws IOException {
+    /**
+     * 計算基於 Delta E 2000 的邊緣圖
+     */
+    private static Mat calculateDE2000Edges(Mat labImage, double threshold) {
+        int rows = labImage.rows();
+        int cols = labImage.cols();
+        Mat edges = Mat.zeros(rows, cols, CvType.CV_8UC1);
+
+        // 方向向量 (8-連通性)
+        int[] dx = {-1, -1, -1, 0, 0, 1, 1, 1};
+        int[] dy = {-1, 0, 1, -1, 1, -1, 0, 1};
+
+        for (int y = 1; y < rows - 1; y++) {
+            for (int x = 1; x < cols - 1; x++) {
+                // 取得中心像素的 LAB 值
+                double[] centerLab = labImage.get(y, x);
+                double maxDeltaE = 0.0;
+
+                // 檢查所有鄰近像素
+                for (int i = 0; i < 8; i++) {
+                    int nx = x + dx[i];
+                    int ny = y + dy[i];
+
+                    if (nx >= 0 && nx < cols && ny >= 0 && ny < rows) {
+                        double[] neighborLab = labImage.get(ny, nx);
+                        double deltaE = calculateDeltaE2000(centerLab, neighborLab);
+                        maxDeltaE = Math.max(maxDeltaE, deltaE);
+                    }
+                }
+
+                // 如果最大的顏色差異超過閾值，標記為邊緣
+                if (maxDeltaE > threshold) {
+                    edges.put(y, x, 255);
+                }
+            }
+        }
+
+        return edges;
+    }
+
+    /**
+     * 計算兩個 LAB 顏色之間的 Delta E 2000 差異
+     * 這是簡化版本，完整版本會更複雜但這已經足夠實用
+     */
+    private static double calculateDeltaE2000(double[] lab1, double[] lab2) {
+        double L1 = lab1[0], a1 = lab1[1], b1 = lab1[2];
+        double L2 = lab2[0], a2 = lab2[1], b2 = lab2[2];
+
+        // 轉換 LAB 為 LCH (極坐標)
+        double C1 = Math.sqrt(a1 * a1 + b1 * b1);
+        double C2 = Math.sqrt(a2 * a2 + b2 * b2);
+        double H1 = Math.atan2(b1, a1) * 180.0 / Math.PI;
+        double H2 = Math.atan2(b2, a2) * 180.0 / Math.PI;
+
+        if (H1 < 0) H1 += 360;
+        if (H2 < 0) H2 += 360;
+
+        // 計算差異
+        double deltaL = L2 - L1;
+        double deltaC = C2 - C1;
+        double deltaH = H2 - H1;
+
+        // 處理色相角度差異
+        if (Math.abs(deltaH) > 180) {
+            if (deltaH > 0) {
+                deltaH -= 360;
+            } else {
+                deltaH += 360;
+            }
+        }
+        deltaH = 2 * Math.sqrt(C1 * C2) * Math.sin(Math.toRadians(deltaH / 2));
+
+        // 簡化的 Delta E 2000 計算 (不包含所有加權因子)
+        // 完整版本會考慮更多因子，但這個版本已經比標準 Delta E 好很多
+        double avgL = (L1 + L2) / 2;
+        double avgC = (C1 + C2) / 2;
+
+        // 亮度加權
+        double SL = 1 + (0.015 * Math.pow(avgL - 50, 2)) / Math.sqrt(20 + Math.pow(avgL - 50, 2));
+        // 彩度加權
+        double SC = 1 + 0.045 * avgC;
+        // 色相加權
+        double SH = 1 + 0.015 * avgC;
+
+        // 加權參數 (可調整)
+        double KL = 1.0, KC = 1.0, KH = 1.0;
+
+        return Math.sqrt(
+                Math.pow(deltaL / (KL * SL), 2) +
+                        Math.pow(deltaC / (KC * SC), 2) +
+                        Math.pow(deltaH / (KH * SH), 2)
+        );
+    }
+
+    /**
+     * 進階版本：結合多個閾值的 DE2000 檢測
+     */
+    public static String convertImageToSVGWithMultiThresholdDE2000(Mat sourceImage) throws IOException {
         int width = sourceImage.width();
         int height = sourceImage.height();
 
-        // --- 影像處理流程 ---
+        Mat labImage = new Mat();
+        Imgproc.cvtColor(sourceImage, labImage, Imgproc.COLOR_BGR2Lab);
 
-        // 1. 轉為灰階
-        Mat grayImage = new Mat();
-        Imgproc.cvtColor(sourceImage, grayImage, Imgproc.COLOR_BGR2GRAY);
+        // 使用多個閾值來捕捉不同強度的顏色邊界
+        double[] thresholds = {1.5, 3.0, 6.0, 10.0}; // JND (Just Noticeable Difference) 級別
+        List<MatOfPoint> allContours = new ArrayList<>();
 
-        // 2. 高斯模糊以去噪
-        Mat blurredImage = new Mat();
-        Imgproc.GaussianBlur(grayImage, blurredImage, new org.opencv.core.Size(5, 5), 0);
+        for (double threshold : thresholds) {
+            Mat edges = calculateDE2000Edges(labImage, threshold);
 
-        // 3. Canny 邊緣偵測
-        Mat edges = new Mat();
-        // 這兩個閾值可以調整，值越低偵測到的邊緣越多
-        Imgproc.Canny(blurredImage, edges, 30, 0);
+            // 根據閾值調整形態學操作
+            int kernelSize = threshold < 5.0 ? 1 : 2;
+            Mat kernel = Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE, new Size(kernelSize, kernelSize));
+            Mat cleanEdges = new Mat();
+            Imgproc.morphologyEx(edges, cleanEdges, Imgproc.MORPH_OPEN, kernel);
 
-        // 4. 霍夫變換 (Hough Transform) 來偵測直線
-        // 這個方法會回傳一系列線段的起點和終點
-        Mat lines = new Mat(); // 儲存偵測到的線條
-        // threshold: 閾值，一條直線上至少要有多少個點才被視為直線，可調整
-        // minLineLength: 線段的最小長度
-        // maxLineGap: 線段之間的最大允許間隙，以將它們視為同一條線
-        Imgproc.HoughLinesP(edges, lines, 1, Math.PI / 180, 0, 0, 5);
+            List<MatOfPoint> contours = new ArrayList<>();
+            Mat hierarchy = new Mat();
+            Imgproc.findContours(cleanEdges, contours, hierarchy, Imgproc.RETR_LIST, Imgproc.CHAIN_APPROX_SIMPLE);
 
-        // --- SVG 生成 ---
+            // 過濾並添加到總列表
+            for (MatOfPoint contour : contours) {
+                double area = Imgproc.contourArea(contour);
+                // 根據閾值調整最小面積要求
+                double minArea = threshold < 5.0 ? 20 : 50;
+                if (area >= minArea && contour.toArray().length >= 6) {
+                    allContours.add(contour);
+                }
+            }
+        }
 
-        // 將原始圖片轉換為Base64，以便嵌入SVG
+        // 生成SVG
         String base64Image = matToBase64(sourceImage, ".png");
-
-        // 生成最終的SVG字符串
         StringBuilder svg = new StringBuilder();
         svg.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
         svg.append(String.format("<svg width=\"%d\" height=\"%d\" xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\">\n", width, height));
-
-        // 添加原始圖片作為底圖
         svg.append(String.format("  <image x=\"0\" y=\"0\" width=\"%d\" height=\"%d\" xlink:href=\"data:image/png;base64,%s\"/>\n",
                 width, height, base64Image));
 
-        // 繪製偵測到的綠色線條
-        for (int i = 0; i < lines.rows(); i++) {
-            double[] vec = lines.get(i, 0);
-            double x1 = vec[0], y1 = vec[1];
-            double x2 = vec[2], y2 = vec[3];
-            svg.append(String.format("  <line x1=\"%.0f\" y1=\"%.0f\" x2=\"%.0f\" y2=\"%.0f\" stroke=\"green\" stroke-width=\"2\"/>\n",
-                    x1, y1, x2, y2));
+        // 繪製所有輪廓
+        for (MatOfPoint contour : allContours) {
+            Point[] points = contour.toArray();
+            drawContourAsPolyline(svg, points);
         }
 
         svg.append("</svg>");
@@ -115,10 +202,22 @@ public final class Eye {
     }
 
     /**
+     * 將輪廓繪製為連續的線段
+     */
+    private static void drawContourAsPolyline(StringBuilder svg, Point[] points) {
+        if (points.length < 2) return;
+
+        StringBuilder polylinePoints = new StringBuilder();
+        for (Point point : points) {
+            polylinePoints.append(String.format("%.0f,%.0f ", point.x, point.y));
+        }
+
+        svg.append(String.format("  <polyline points=\"%s\" fill=\"none\" stroke=\"green\" stroke-width=\"1\" opacity=\"0.7\"/>\n",
+                polylinePoints.toString().trim()));
+    }
+
+    /**
      * 將 OpenCV Mat 物件轉換為 Base64 字符串。
-     * @param mat OpenCV Mat 物件
-     * @param fileExtension 圖像格式 (例如 ".png" 或 ".jpg")
-     * @return Base64 編碼的字符串
      */
     private static String matToBase64(Mat mat, String fileExtension) {
         MatOfByte matOfByte = new MatOfByte();
