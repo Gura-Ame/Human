@@ -1,9 +1,9 @@
 package com.github.guraame.human.parse;
 
-import com.github.guraame.human.Human;
 import com.github.guraame.human.debug.Debugger;
 import com.github.guraame.human.grammar.GrammarGenerator;
 import com.github.guraame.human.idea.Idea;
+import com.github.guraame.human.idea.IdeaManager;
 import com.github.guraame.human.input.Message;
 import com.github.guraame.human.output.Answer;
 import org.jetbrains.annotations.NotNull;
@@ -13,7 +13,13 @@ import java.util.function.Function;
 import java.util.stream.Stream;
 
 public final class MessageParser {
-    private static boolean containsHanScript(@NotNull Message message) {
+    private final IdeaManager ideaManager;
+
+    public MessageParser(IdeaManager ideaManager) {
+        this.ideaManager = ideaManager;
+    }
+
+    private boolean containsHanScript(@NotNull Message message) {
         String messageString = message.get();
         for (int i = 0; i < messageString.length(); ) {
             int codepoint = messageString.codePointAt(i);
@@ -26,7 +32,7 @@ public final class MessageParser {
         return false;
     }
 
-    private static List<Token> parseToken(@NotNull Message message) {
+    private List<Token> parseToken(@NotNull Message message) {
         String messageString = message.get();
         String[] stringTokens = messageString.split(" ");
 
@@ -34,7 +40,7 @@ public final class MessageParser {
         return stringTokensStream.map(Token::of).toList();
     }
 
-    private static final Function<String, String> filter = (s -> {
+    private final Function<String, String> filter = (s -> {
         List<String> prefix = List.of(
                 "What", "What's", "This", "This's", "That", "That's", "There", "There's",
                 "When", "When's", "Who", "Who's", "Whose", "How", "How's", "Will",
@@ -49,7 +55,7 @@ public final class MessageParser {
         return s;
     });
 
-    private static List<Token> parseTokenForTrain(@NotNull Message message) {
+    private List<Token> parseTokenForTrain(@NotNull Message message) {
         String messageString = message.get().substring(0, (message.get().charAt(message.get().length() - 1) == '.' ? message.get().length() - 1 : message.get().length()));
         String[] stringTokens = messageString.split(" ");
 
@@ -59,7 +65,7 @@ public final class MessageParser {
         return stringTokensStream.map(Token::of).toList();
     }
 
-    public static Answer parseMessage(Message message) {
+    public Answer parseMessage(Message message) {
         if (Debugger.DEBUG && Debugger.train) {
             parseMessageAndTrain(message);
             return Answer.of("");
@@ -67,12 +73,12 @@ public final class MessageParser {
         return parseMessageForChat(message);
     }
 
-    public static Answer parseMessageForChat(Message message) {
+    public Answer parseMessageForChat(Message message) {
         if (containsHanScript(message)) return Answer.of("Unsupported Message.");
         List<Token> tokens = parseToken(message);
         List<Idea> ideas = new ArrayList<>();
         for (Token token : tokens) {
-            Set<Idea> ideaLookupResult = Human.ideaManger.getCommonRelated(token);
+            Set<Idea> ideaLookupResult = ideaManager.getCommonRelated(token);
             if (ideaLookupResult.isEmpty()) {
                 return Answer.of("I don't know.");
             }
@@ -81,10 +87,10 @@ public final class MessageParser {
         return GrammarGenerator.createAnswerFromIdeas(ideas);
     }
 
-    public static void parseMessageAndTrain(Message message) {
+    public void parseMessageAndTrain(Message message) {
         if (containsHanScript(message)) throw new IllegalArgumentException("Unsupported Message.");
         List<Token> tokens = parseTokenForTrain(message);
-        Human.ideaManger.linkAll(tokens);
+        ideaManager.linkAll(tokens);
         System.out.println("Trained.");
     }
 }

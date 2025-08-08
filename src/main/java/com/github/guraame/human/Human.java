@@ -5,36 +5,43 @@ import com.github.guraame.human.concept.Concept;
 import com.github.guraame.human.concept.ConceptType;
 import com.github.guraame.human.debug.Debugger;
 import com.github.guraame.human.idea.Idea;
-import com.github.guraame.human.idea.IdeaManger;
+import com.github.guraame.human.idea.IdeaManager;
 import com.github.guraame.human.input.Message;
 import com.github.guraame.human.parse.MessageParser;
 import com.github.guraame.human.parse.Token;
-import org.apache.commons.math3.fitting.PolynomialCurveFitter;
-import org.apache.commons.math3.fitting.WeightedObservedPoints;
 
-import java.awt.geom.Point2D;
+import java.io.File;
+import java.io.IOException;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Scanner;
 
 public final class Human {
-    public static IdeaManger ideaManger = new IdeaManger();
+    private static final File MEMORY_FILE = new File("memory.json");
+    private final IdeaManager ideaManager;
+
+    public Human() {
+        try {
+            this.ideaManager = IdeaManager.load(MEMORY_FILE);
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to load memory", e);
+        }
+    }
 
     public static void main(String[] args) {
-        List<Point2D> edge = List.of(
-                new Point2D.Double(0, 0),
-                new Point2D.Double(1, 1),
-                new Point2D.Double(2, 4),
-                new Point2D.Double(3, 9)
-        );
-        PolynomialCurveFitter fitter = PolynomialCurveFitter.create(2);
-        WeightedObservedPoints obs = new WeightedObservedPoints();
-        edge.forEach(p -> obs.add(p.getX(), p.getY()));
-        double[] coeff = fitter.fit(obs.toList());
-        System.out.println("f(x) = "
-                + String.format("%f", coeff[2]) + "x^2 + "
-                + String.format("%f", coeff[1]) + "x + "
-                + String.format("%f", coeff[0]));
+        new Human().run();
+    }
+
+    public void run() {
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            try {
+                ideaManager.save(MEMORY_FILE);
+                System.out.println("\nMemory saved.");
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }));
+
+        MessageParser messageParser = new MessageParser(ideaManager);
 
         var concept = new HashMap<ConceptType, Concept<BaseConceptType>>();
         concept.put(ConceptType.NULL, new Concept<>() {
@@ -50,10 +57,15 @@ public final class Human {
             }
         });
         Scanner scanner = new Scanner(System.in);
-        ideaManger.addRelation(Token.of("name"), Idea.of("human"));
+        ideaManager.addRelation(Token.of("name"), Idea.of("human"));
         Debugger.setTrain(true);
         while (true) {
-            MessageParser.parseMessage(Message.of(scanner.nextLine())).printIn(System.out);
+            System.out.print("> ");
+            String input = scanner.nextLine();
+            if ("exit".equalsIgnoreCase(input)) {
+                break;
+            }
+            messageParser.parseMessage(Message.of(input)).printIn(System.out);
         }
     }
 }
